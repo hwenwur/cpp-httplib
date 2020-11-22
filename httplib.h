@@ -428,6 +428,7 @@ struct Response {
   std::string reason;
   Headers headers;
   std::string body;
+  std::string location; // Redirect location
 
   bool has_header(const char *key) const;
   std::string get_header_value(const char *key, size_t id = 0) const;
@@ -1097,12 +1098,11 @@ public:
              const char *content_type);
   Result Put(const char *path, size_t content_length,
              ContentProvider content_provider, const char *content_type);
-  Result Put(const char *path, size_t content_length,
-             ContentProviderWithoutLength content_provider,
+  Result Put(const char *path, ContentProviderWithoutLength content_provider,
              const char *content_type);
   Result Put(const char *path, const Headers &headers, size_t content_length,
              ContentProvider content_provider, const char *content_type);
-  Result Put(const char *path, const Headers &headers, size_t content_length,
+  Result Put(const char *path, const Headers &headers,
              ContentProviderWithoutLength content_provider,
              const char *content_type);
   Result Put(const char *path, const Params &params);
@@ -1113,12 +1113,11 @@ public:
                const std::string &body, const char *content_type);
   Result Patch(const char *path, size_t content_length,
                ContentProvider content_provider, const char *content_type);
-  Result Patch(const char *path, size_t content_length,
-               ContentProviderWithoutLength content_provider,
+  Result Patch(const char *path, ContentProviderWithoutLength content_provider,
                const char *content_type);
   Result Patch(const char *path, const Headers &headers, size_t content_length,
                ContentProvider content_provider, const char *content_type);
-  Result Patch(const char *path, const Headers &headers, size_t content_length,
+  Result Patch(const char *path, const Headers &headers,
                ContentProviderWithoutLength content_provider,
                const char *content_type);
 
@@ -2956,7 +2955,8 @@ inline bool write_content_chunked(Stream &strm,
 
 template <typename T>
 inline bool redirect(T &cli, const Request &req, Response &res,
-                     const std::string &path) {
+                     const std::string &path,
+                     const std::string &location) {
   Request new_req = req;
   new_req.path = path;
   new_req.redirect_count_ -= 1;
@@ -2970,7 +2970,10 @@ inline bool redirect(T &cli, const Request &req, Response &res,
   Response new_res;
 
   auto ret = cli.send(new_req, new_res);
-  if (ret) { res = new_res; }
+  if (ret) {
+    new_res.location = location;
+    res = new_res;
+  }
   return ret;
 }
 
@@ -5029,13 +5032,13 @@ inline bool ClientImpl::redirect(const Request &req, Response &res) {
   if (next_path.empty()) { next_path = "/"; }
 
   if (next_scheme == scheme && next_host == host_ && next_port == port_) {
-    return detail::redirect(*this, req, res, next_path);
+    return detail::redirect(*this, req, res, next_path, location);
   } else {
     if (next_scheme == "https") {
 #ifdef CPPHTTPLIB_OPENSSL_SUPPORT
       SSLClient cli(next_host.c_str(), next_port);
       cli.copy_settings(*this);
-      auto ret = detail::redirect(cli, req, res, next_path);
+      auto ret = detail::redirect(cli, req, res, next_path, location);
       if (!ret) { error_ = cli.get_last_error(); }
       return ret;
 #else
@@ -5044,7 +5047,7 @@ inline bool ClientImpl::redirect(const Request &req, Response &res) {
     } else {
       ClientImpl cli(next_host.c_str(), next_port);
       cli.copy_settings(*this);
-      auto ret = detail::redirect(cli, req, res, next_path);
+      auto ret = detail::redirect(cli, req, res, next_path, location);
       if (!ret) { error_ = cli.get_last_error(); }
       return ret;
     }
@@ -6661,12 +6664,22 @@ inline Result Client::Put(const char *path, size_t content_length,
   return cli_->Put(path, content_length, std::move(content_provider),
                    content_type);
 }
+inline Result Client::Put(const char *path,
+                          ContentProviderWithoutLength content_provider,
+                          const char *content_type) {
+  return cli_->Put(path, std::move(content_provider), content_type);
+}
 inline Result Client::Put(const char *path, const Headers &headers,
                           size_t content_length,
                           ContentProvider content_provider,
                           const char *content_type) {
   return cli_->Put(path, headers, content_length, std::move(content_provider),
                    content_type);
+}
+inline Result Client::Put(const char *path, const Headers &headers,
+                          ContentProviderWithoutLength content_provider,
+                          const char *content_type) {
+  return cli_->Put(path, headers, std::move(content_provider), content_type);
 }
 inline Result Client::Put(const char *path, const Params &params) {
   return cli_->Put(path, params);
@@ -6689,12 +6702,22 @@ inline Result Client::Patch(const char *path, size_t content_length,
   return cli_->Patch(path, content_length, std::move(content_provider),
                      content_type);
 }
+inline Result Client::Patch(const char *path,
+                            ContentProviderWithoutLength content_provider,
+                            const char *content_type) {
+  return cli_->Patch(path, std::move(content_provider), content_type);
+}
 inline Result Client::Patch(const char *path, const Headers &headers,
                             size_t content_length,
                             ContentProvider content_provider,
                             const char *content_type) {
   return cli_->Patch(path, headers, content_length, std::move(content_provider),
                      content_type);
+}
+inline Result Client::Patch(const char *path, const Headers &headers,
+                            ContentProviderWithoutLength content_provider,
+                            const char *content_type) {
+  return cli_->Patch(path, headers, std::move(content_provider), content_type);
 }
 inline Result Client::Delete(const char *path) { return cli_->Delete(path); }
 inline Result Client::Delete(const char *path, const std::string &body,
